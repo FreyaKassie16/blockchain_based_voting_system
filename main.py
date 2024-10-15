@@ -27,6 +27,8 @@ class Blockchain:
     def __init__(self):
         self.unconfirmed_votes = []
         self.chain = []
+        self.voter_whitelist = {"Voter1", "Voter2", "Voter3", "Voter4"}
+        self.voted_voters = set()
         self.create_genesis_block()
 
     def create_genesis_block(self):
@@ -58,11 +60,23 @@ class Blockchain:
         return computed_hash
     
     def add_new_vote(self, voter_id, candidate):
+        if voter_id not in self.voter_whitelist:
+            print(f"Voter ID {voter_id} is not authorized to vote!")
+            return False
+        
+        if voter_id in self.voted_voters:
+            print(f"Voter ID {voter_id} has already voted!")
+            return False
+        
         vote = {"voter_id": voter_id, "candidate": candidate}
         self.unconfirmed_votes.append(vote)
+        self.voted_voters.add(voter_id)
+        print(f"Vote accepted from {voter_id} for {candidate}")
+        return True
 
     def mine(self):
         if not self.unconfirmed_votes:
+            print("No votes to mine.")
             return False
         
         last_block = self.get_last_block()
@@ -103,8 +117,10 @@ class Blockchain:
 
 voting_chain = Blockchain()
 
-voting_chain.add_new_vote("Voter1", "CandidateA")
-voting_chain.add_new_vote("Voter2", "CandidateB")
+voting_chain.add_new_vote("Voter1", "CandidateA") # Valid vote
+voting_chain.add_new_vote("Voter5", "CandidateB") # Invalid vote
+voting_chain.add_new_vote("Voter2", "CandidateB") # Valid vote
+voting_chain.add_new_vote("Voter1", "CandidateC") # Invalid vote
 
 voting_chain.mine()
 
