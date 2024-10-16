@@ -1,6 +1,8 @@
 import hashlib
 import json
 import time
+import socket
+import threading
 
 class Block:
     def __init__(self, index, previous_hash, votes, timestamp, proof):
@@ -39,7 +41,7 @@ class Blockchain:
     def get_last_block(self):
         return self.chain[-1]
     
-    def add_block(self, block, proof):
+    def add_block(self, block: Block, proof):
         previous_hash = self.get_last_block().hash
         if previous_hash != block.previous_hash:
             return False
@@ -59,7 +61,7 @@ class Blockchain:
             computed_hash = block.compute_hash()
         return computed_hash
     
-    def add_new_vote(self, voter_id, candidate):
+    def add_new_vote(self, voter_id: str, candidate: str):
         if voter_id not in self.voter_whitelist:
             print(f"Voter ID {voter_id} is not authorized to vote!")
             return False
@@ -114,29 +116,91 @@ class Blockchain:
             
         return True
     
+def broadcast_new_block(block):
+    peers = [("127.0.0.1", 5001), ("127.0.0.1", 5002)]
+    block_data = json.dumps(block.__dict__)
+    for peer in peers:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.connect(peer)
+                s.sendall(block_data.encode())
+                print(f"Block broadcasted to {peer}")
+            except ConnectionRefusedError:
+                print(f"Failed to connect to {peer}")
+
+def listen_for_blocks(blockchain, port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", port))
+        s.listen()
+        print(f"Listening for new blocks on port {port}...")
+        while True:
+            conn, addr = s.accept()
+            with conn:
+                block_data = conn.recv(1024)
+                if block_data:
+                    new_block_dict = json.loads(block_data.decode())
+                    if new_block_dict['index'] == 0:  # Genesis block
+                        new_genesis_block = Block(
+                            index=new_block_dict['index'],
+                            previous_hash=new_block_dict['previous_hash'],
+                            votes=new_block_dict['votes'],
+                            timestamp=new_block_dict['timestamp'],
+                            proof=new_block_dict['proof']
+                        )
+                        new_genesis_block.hash = new_genesis_block.compute_hash()
+                        blockchain.chain.append(new_genesis_block)
+                        print(f"Genesis block added from {addr}")
+                    else:
+                        new_block = Block(
+                            index=new_block_dict["index"],
+                            previous_hash=new_block_dict["previous_hash"],
+                            votes=new_block_dict["votes"],
+                            timestamp=new_block_dict["timestamp"],
+                            proof=new_block_dict["proof"]
+                        )
+                        new_block.hash = new_block.compute_hash()
+
+                        if blockchain.add_block(new_block, new_block.hash):
+                            print(f"New block added from {addr}")
+                        else:
+                            print(f"Block from {addr} is invalid")
+
+def run_node(blockchain, port):
+    thread = threading.Thread(
+        target=listen_for_blocks, 
+        args=(blockchain, port)
+    )
+    thread.start()
+
+    if len(blockchain.chain) == 1:
+        genesis_block = blockchain.chain[0]
+        broadcast_new_block(genesis_block)
+
+    while True:
+        command = input(
+            "Enter 'mine' to mine a block, 'vote' to cast a vote: "
+        ).strip()
+
+        if command == "mine":
+            blockchain.mine()
+            last_block = blockchain.get_last_block()
+            broadcast_new_block(last_block)
+
+        elif command == "vote":
+            voter_id = input("Enter your voter ID: ")
+            candidate = input("Enter your candidate: ")
+            blockchain.add_new_vote(voter_id, candidate)
+
+        elif command == "show":
+            for block in voting_chain.chain:
+                print(
+                    f"Block {block.index}:\n"
+                    f"Hash: {block.hash}\n"
+                    f"Previous Hash: {block.previous_hash}\n"
+                    f"Votes: {block.votes}\n"
+                )
 
 voting_chain = Blockchain()
+run_node(voting_chain, 5002)
 
-voting_chain.add_new_vote("Voter1", "CandidateA") # Valid vote
-voting_chain.add_new_vote("Voter5", "CandidateB") # Invalid vote
-voting_chain.add_new_vote("Voter2", "CandidateB") # Valid vote
-voting_chain.add_new_vote("Voter1", "CandidateC") # Invalid vote
 
-voting_chain.mine()
-
-voting_chain.add_new_vote("Voter3", "CandidateA")
-voting_chain.add_new_vote("Voter4", "CandidateC")
-
-voting_chain.mine()
-
-is_valid = voting_chain.validate_chain()
-
-print("Blockchain is valid:", is_valid)
-
-for block in voting_chain.chain:
-    print(
-        f"Block {block.index}:\n"
-        f"Hash: {block.hash}\n"
-        f"Previous Hash: {block.previous_hash}\n"
-        f"Votes: {block.votes}\n"
-    )
